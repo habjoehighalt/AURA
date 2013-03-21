@@ -1,0 +1,923 @@
+//Copyright Andrew and Joe Myatt 2013
+
+#include <SoftwareSerial.h>
+#include "Wire.h"
+#include "I2Cdev.h"
+#include <EasyTransferI2C.h>
+#include <String.h>
+#include <util/crc16.h>
+#include <avr/pgmspace.h>
+/*********************************************************
+ * uses Base64 and sha256 libraries.... (there is a bug in the sha256 librat on the net and it needs to be modified)
+ */
+#include <Base64.h>
+#include <sha256.h>
+
+#define DEBUG_ON
+
+// NOTE WIRE BUFFER SIZE INCREASED TO 50 in wire.h
+ /***********************************************************************************************************************************
+ * Altitude phone on/off and cut away
+ * 
+ *
+ *
+#defind altBuffer 50
+ 
+ altMode[altRing] = InAlt;
+ altRing++;
+ if (altRing > altBuffer) altRing=0;
+ int mMin = 99999999;
+ int mMax = 0;
+ for (int i =0; i< altBuffer; i++){
+  if (altMode[i] > mMax) mMax = altMode[i];
+ 	if (altMode[i] < mMin) mMin = altMode[i];
+}
+
+	
+int	altMode[] = {0,0,0,0,0};
+int maxAlt = 0;
+int minAlt = 9999999;
+byte altRing = 0;
+/*
+
+ /***********************************************************************************************************************************
+ * Data definitions
+ * 
+ *
+ */
+
+typedef struct {
+	  uint16_t t_count;  			    //2
+	  byte 	  year;					//1 	  
+	  byte    month;				//1	  
+	  byte    day;					//1	  
+	  byte    hour;					//1
+	  byte    minute;				//1
+	  byte    second;				//1
+	  long    i_lat;				//4
+	  long    i_long;				//4
+	  long    i_alt; 				//4	  
+	  int16_t i_P;					//2		Pressure  Pa  (Convert to KPa)
+	  int16_t i_T;					//2		Pressure Temp (*x0.1 DegC)
+	  int16_t i_EXT; 				//2		External Temp
+	  byte    i_L;					//1		Light Sensor
+	  byte 	  sats;					//1 ?
+} IC2DATA_STRUCTURE;
+     	 
+EasyTransferI2C ET; 			   //Easy Transfer
+IC2DATA_STRUCTURE i2cVals;		             
+ 
+/*********************************************************
+ * User settings
+ */
+static long USR_OFFALTITUDE_CM		= 182800;								// In Centimeters Mtr*100 (i use 6000 ft)
+static long USR_SMSDELAY			= 300000;								//
+static char USR_PAYRECEIVERNAME[] 	= "HABJOE-GPRS";						// 
+static char USR_PAYLOADNAME[]		= "$$AURA";								// Include the $$ as well.
+static char USR_APN[] 				= "payandgo.o2.co.uk";					// Users APN 
+static char USR_SMSNO[] 			= "+44xxxx";						// Users mobile no for SMS messages
+
+int 		PUT_TEMPLATE_LEN;	// This is calculated in setup;
+char 		telemetryString[80];  	
+
+#define I2C_SLAVE_ADDRESS 9 												//define slave i2c address
+#define ON_VOLTAGE		100													//actually around 450 but this value provides some flex
+
+/*********************************************************
+ * PROGMEM Variables
+ */
+
+#define R_PROGMEMTST 	0
+#define R_ATCIPSTART 	1
+#define R_ATCIPSEND	 	2
+#define R_PUTHABHUB0 	3
+#define R_PUTHABHUB1 	4
+#define R_PUTHABHUB2 	5
+#define R_PUTHABHUB3 	6
+#define R_PUTHABHUB4 	7
+#define R_PUTHABHUB5 	8
+#define R_PUTHABHUB6 	9
+#define R_PUTHABHUB7 	10
+#define R_PUTHABHUB8 	11
+#define R_PUTHABHUB9 	12
+#define R_ATCMGS	 	13
+#define R_ATCSTT 	 	14
+#define R_ATCIPSTATUS 	15
+#define R_ATCIPCLOSE 	16
+#define R_ATS01 		17
+#define R_TCMGF1 		18
+#define R_ATCIPSPRT1 	19
+#define R_ATCGATT1 		20
+#define R_ATCIICR 		21
+#define R_ATCIFSR 		22
+#define R_ATCLVL 		23
+#define R_ATCIPSHUT		24
+
+prog_char PROGMEMTST[]  PROGMEM = "PROGMEM TEST OK";
+prog_char ATCIPSTART[]  PROGMEM = "AT+CIPSTART=\"tcp\",\"habitat.habhub.org\",\"80\"";
+prog_char ATCIPSEND[]   PROGMEM = "AT+CIPSEND";
+prog_char PUTHABHUB0[]  PROGMEM = "PUT http://habitat.habhub.org/habitat/";
+prog_char PUTHABHUB1[]  PROGMEM = " HTTP/1.0\r\n";
+prog_char PUTHABHUB2[]  PROGMEM = "Host: habitat.habhub.org\r\nContent-Length: ";
+prog_char PUTHABHUB3[]  PROGMEM = "\r\nContent-Type: application/json\r\n\r\n";
+prog_char PUTHABHUB4[]  PROGMEM = "{\r";
+prog_char PUTHABHUB5[]  PROGMEM = " \"type\": \"payload_telemetry\",\r \"data\": {\r \"_raw\": \"";
+prog_char PUTHABHUB6[]  PROGMEM = "\"\r},\r \"receivers\": {\r \"";
+prog_char PUTHABHUB7[]  PROGMEM = "\": {\r \"time_created\": \"";
+prog_char PUTHABHUB8[]  PROGMEM = "\",\r \"time_uploaded\": \"";
+prog_char PUTHABHUB9[]  PROGMEM = "\"\r}\r}\r}\r\r";
+prog_char ATCMGS[]	    PROGMEM = "AT+CMGS = \"";
+prog_char ATCSTT[] 	    PROGMEM = "AT+CSTT=\"";
+prog_char ATCIPSTATUS[] PROGMEM = "AT+CIPSTATUS";
+prog_char ATCIPCLOSE[]  PROGMEM = "AT+CIPCLOSE";
+prog_char ATS01[]  		PROGMEM = "ATS0=1";
+prog_char TCMGF1[]  	PROGMEM = "AT+CMGF=1";
+prog_char ATCIPSPRT1[]  PROGMEM = "AT+CIPSPRT=1";
+prog_char ATCGATT1[]    PROGMEM = "AT+CGATT=1";
+prog_char ATCIICR[]     PROGMEM = "AT+CIICR";
+prog_char ATCIFSR[]     PROGMEM = "AT+CIFSR";
+prog_char ATCLVL[]   	PROGMEM = "AT+CLVL=100";
+prog_char ATCIPSHUT[]   PROGMEM = "AT+CIPSHUT";
+
+PROGMEM const char *prgm_table[] = 	 {   
+  PROGMEMTST,ATCIPSTART,ATCIPSEND,
+  PUTHABHUB0,PUTHABHUB1,PUTHABHUB2,
+  PUTHABHUB3,PUTHABHUB4,PUTHABHUB5,
+  PUTHABHUB6,PUTHABHUB7,PUTHABHUB8,
+  PUTHABHUB9,ATCMGS,ATCSTT,
+  ATCIPSTATUS,ATCIPCLOSE,ATS01,
+  TCMGF1,ATCIPSPRT1,ATCGATT1,
+  ATCIICR,ATCIFSR,ATCLVL,ATCIPSHUT 
+  };
+  
+const int PROMEMBUFSIZE = 80;
+char prgmembuffer[PROMEMBUFSIZE];
+
+/*********************************************************
+ * Mobile commands
+ */
+
+static byte RXNK = 0;
+static byte RXCONF = 1;
+static byte SET_OFF = 0;
+static byte SET_ON = 1;
+
+/*********************************************************
+ * Mobile User requests
+ */
+
+static int setMobileOn = 0;
+static int setSendSMS = 1;
+static int setSendPUTS = 2;
+ 
+byte mobRequest[3] = {SET_OFF,SET_OFF,SET_OFF};
+
+/*********************************************************
+ * Mobile Status
+ */
+static int state_Mobile 	= 0;	//is mobile on
+static int state_CIPSTATUS 	= 1;    //gets currect status
+
+static int state_ATS0 		= 2;	//answer after 1 ring
+static int state_CMGF1 		= 3;	//SMS in text mode
+static int state_CIPSPRT 	= 4;	//Set prompt when data sends
+static int state_ATCLVL 	= 5;	//Speak Level Control
+
+
+byte mobState[] = {RXNK,99,RXNK,RXNK,RXNK,RXNK};
+
+/******************************************
+ * Pin Definitions
+ */
+
+int MOBILE_RX = 2;
+int MOBILE_TX = 3;
+int MOBILE_ONOFF = 9;
+int MOBILE_STATUS = A0;
+
+/*****************************************
+ * Buffers
+ */
+const int BUFFSIZE = 100;
+char inBuffer[BUFFSIZE];
+
+const int OUTBUFFSIZE = 100;
+char outBuffer[OUTBUFFSIZE];
+
+char LONGDATE[30] = "";
+
+unsigned long ElaspeSMS;
+unsigned long ElaspeHAB;
+
+SoftwareSerial dbSerial(MOBILE_RX, MOBILE_TX);
+
+/*****************************************
+ * SIM900 Status return strings
+ */
+
+static char S_INITIAL[] =		"IP INITIAL";
+static char S_START[]	=		"IP START";
+static char S_CONFIG[]	=		"IP CONFIG";
+static char S_GPRSACT[]=		"IP GPRSACT";
+static char S_STATUS[]	=		"IP STATUS";
+static char S_CONNECTING[] =	"CONNECTING";
+static char S_CONNECTOK[]=	 	"CONNECT OK";
+static char S_CLOSING[]=		"P CLOSING";
+static char S_CLOSED[]	=		"P CLOSED";
+static char S_SDEACT[]	=		"P DEACT";
+static char S_ERROR[]=	 		"ERROR";
+static char S_OK[] = 			"OK";
+static char S_CONNECT_OK[]=		"CONNECT OK";
+
+ /***********************************************************************************************************************************
+ * Mobile module Management
+ * 
+ * sort of state machine to control the mobile module
+ */
+ 
+  /*****************************************
+ * isMobileOn - reads analogRead pin MOBILE_STATUS - this is wired to RI (ring indicator in the UART block. (its powered up and down as the module powers up and down)
+ */
+
+void receive(int numBytes) {
+// Don't put anything in this function as it stops the Mobile phone loop working correctlu	
+}
+
+ byte isMobileOn() {
+ 	byte ret_val;  
+	if (analogRead(MOBILE_STATUS) > ON_VOLTAGE) {
+		ret_val = RXCONF;
+	} else {
+		ret_val = RXNK;
+	}
+	return ret_val;
+} 
+
+ /*****************************************
+ * getCIPSTATUS - gets the SIM900 GPRS status and sets mobState[state_CIPSTATUS], waits until valid state found or 2000 from start or last byte received.
+ */
+ 
+ void getCIPSTATUS()  {
+    int i = 0;
+	int iq = 0;
+	byte ret_val = 99;
+	char *ch;
+	byte lastStatus = mobState[state_CIPSTATUS];
+	Serial.flush();
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCIPSTATUS])));	
+	int la = strlen(prgmembuffer);
+	mob_SerialPrintln(prgmembuffer);
+    unsigned long start = millis();
+	unsigned long lastbyte = millis();
+
+	bool rd = true;
+
+	while(rd)  {
+		if (Serial.available() >0)  {
+			if (i < BUFFSIZE) {                      
+				inBuffer[i] = Serial.read();
+				lastbyte = millis();
+				if (iq++ > la) i++;
+			} else {
+				rd = false;		  
+			}
+		} 
+		inBuffer[i]='\0'; 
+	
+		ch = strstr (inBuffer, S_INITIAL);
+		if (ch != NULL) {
+				ret_val = 0;
+				rd = false;
+		}
+		if (rd != false) {
+			ch = strstr (inBuffer, S_START);
+			if (ch != NULL) {
+				ret_val = 1;
+				rd = false;
+			}
+		}
+		if (rd != false) {		
+			ch = strstr (inBuffer, S_CONFIG);
+			if (ch != NULL) {
+				ret_val = 2;
+				rd = false;				
+			}
+		}
+		if (rd != false) {			
+			ch = strstr (inBuffer, S_GPRSACT);
+			if (ch != NULL) {
+				ret_val = 3;
+				rd = false;				
+			}
+		}
+		if (rd != false) {			
+			ch = strstr (inBuffer, S_STATUS);
+			if (ch != NULL) {
+				ret_val = 4;
+				rd = false;				
+			}
+		}
+		if (rd != false) {			
+			ch = strstr (inBuffer, S_CONNECTING);
+			if (ch != NULL) {
+				ret_val = 5;
+				rd = false;				
+			}
+		}
+		if (rd != false) {			
+			ch = strstr (inBuffer, S_CONNECTOK);
+			if (ch != NULL) {
+				ret_val = 6;
+				rd = false;				
+			}
+		}
+		if (rd != false) {	
+			ch = strstr (inBuffer, S_CLOSING);
+			if (ch != NULL) {
+				ret_val = 7;
+				rd = false;				
+			}
+		}
+		if (rd != false) {			
+			ch = strstr (inBuffer, S_CLOSED);
+			if (ch != NULL) {
+				ret_val = 8;
+				rd = false;
+			}
+		}
+		if (rd != false) {				
+			ch = strstr (inBuffer, S_SDEACT);
+			if (ch != NULL) {
+				ret_val = 9;
+				rd = false;				
+				}
+		}
+		if (rd != false) {			
+			ch = strstr (inBuffer, S_ERROR);
+			if (ch != NULL) {
+				ret_val = lastStatus;
+				rd = false;
+			}
+		}		
+				
+		if ((millis()-lastbyte)>2000) rd = false;	
+	}
+	mobState[state_CIPSTATUS] = ret_val;
+	if (mobState[state_CIPSTATUS] == 99) {
+		mobState[state_ATS0] = RXNK;
+		mobState[state_CMGF1] = RXNK;
+		mobState[state_CIPSPRT] = RXNK;
+	}
+	
+#ifdef DEBUG_ON
+    dbSerial.print("<--");
+    dbSerial.println(inBuffer);	
+    dbSerial.print("Status:\t");
+    dbSerial.println(mobState[state_CIPSTATUS]);
+#endif			
+}
+
+
+ /*****************************************
+ * manageMobileModule - State machine to turn on/off module and when on set module settings, and achive and maintain GPRS status 4
+ */
+ 
+ void manageMobileModule() {
+ 	mobState[state_Mobile] = isMobileOn();
+	
+	if (mobRequest[setMobileOn] != mobState[state_Mobile]) {
+		digitalWrite(MOBILE_ONOFF,LOW);
+		delay(1000);
+		digitalWrite(MOBILE_ONOFF,HIGH);
+		delay(2000);
+		digitalWrite(MOBILE_ONOFF,LOW);
+		delay(6000);
+		return;
+	}
+
+	if ((mobState[state_Mobile] == RXNK) || (mobRequest[setMobileOn] != mobState[state_Mobile])){
+		mobState[state_CIPSTATUS] = 99;
+		return;
+	}
+	
+	getCIPSTATUS();
+	
+	if (mobState[state_ATS0] == RXNK) {
+		strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATS01])));
+		mobState[state_ATS0] = sendWaitChkResp(prgmembuffer, 2000, S_OK);		    				//Auto Answer on 1 rings
+	}
+	if (mobState[state_CMGF1] == RXNK) {
+		strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_TCMGF1])));
+		mobState[state_CMGF1] = sendWaitChkResp(prgmembuffer, 2000, S_OK);		    				//Set Text Messages to TXT mode
+	}	
+	if (mobState[state_CIPSPRT] == RXNK) {
+		strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCIPSPRT1])));
+		mobState[state_CIPSPRT] = sendWaitChkResp(prgmembuffer, 2000, S_OK);		    			//set prompt when using CIP-SEND Prompt
+	}	
+	if (mobState[state_ATCLVL] == RXNK) {
+		strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCLVL])));
+		mobState[state_ATCLVL] = sendWaitChkResp(prgmembuffer, 2000, S_OK);		    				//set speaker level to 100
+	}	
+
+	//AT+CSQ a,99
+	//AT+CREG? 
+	//+
+	
+	if ((mobState[state_CIPSTATUS] == 8 || mobState[state_CIPSTATUS] == 9)) {														//Shut the TCP session
+		strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCIPSHUT])));					
+		sendWaitChkResp(prgmembuffer, 100, S_OK);
+		getCIPSTATUS();	
+	}
+	
+	if (mobState[state_CIPSTATUS] <= 0) {
+			strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCGATT1])));
+			sendWaitChkResp(prgmembuffer, 2000, S_OK);												//Attach to GPRS Service
+			getCIPSTATUS();
+	}
+	if (mobState[state_CIPSTATUS] <= 0) {
+			strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCSTT])));
+			strcat(prgmembuffer, USR_APN);															// Add users APN settings
+			strcat(prgmembuffer, "\"");
+			sendWaitChkResp(prgmembuffer, 2000, S_OK);												//Start Task set APN
+			getCIPSTATUS();
+	}
+	
+	if (mobState[state_CIPSTATUS] == 1)  {
+			strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCIICR])));
+			sendWaitChkResp(prgmembuffer, 2000, S_OK);												//Bring up GRPS network.	
+	}
+	
+	if ((mobState[state_CIPSTATUS] == 2 || mobState[state_CIPSTATUS] == 3)) {
+			strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCIFSR])));
+			sendWaitChkResp("AT+CIFSR", 2000, ".");													//get local IP Address
+			getCIPSTATUS();
+	}
+
+	return ;
+}
+
+ /*****************************************
+ * sendWaitChkResp - Sends a string to the module and looks for the expected return, keeps looking until found or timeDelay from start or last character recieved.
+ */
+
+ byte sendWaitChkResp(char* sent_string, int timeDelay,  char* expected_resp_string, bool sendESC)  {
+	Serial.flush();
+	int la;
+	if (sendESC) {
+		Serial.println((char)26);
+		la = 1;
+	} else {
+		mob_SerialPrintln(sent_string);	
+		la = strlen(sent_string);
+	}
+
+
+    int i = 0;
+	int iq = 0;
+    char *ch;
+	byte ret_val;
+    unsigned long start = millis();
+    unsigned long lastbyte = millis();
+	bool rd = true;
+	
+	while(rd)  {
+		if (Serial.available() >0)  {
+			if (i < BUFFSIZE) {                      
+				inBuffer[i] = Serial.read();
+				lastbyte = millis();
+				if (iq++ >= la) i++;
+			} else {
+				rd = false;		  
+			}
+		} 
+		inBuffer[i]='\0'; 
+		ch = strstr (inBuffer, expected_resp_string);
+		if (ch != NULL) {
+				ret_val = RXCONF;
+#ifdef DEBUG_ON	
+				dbSerial.println("#**");
+				dbSerial.println(la);
+				dbSerial.print("Ex:\t");
+				dbSerial.println(expected_resp_string);
+				dbSerial.print("<--#**");
+				dbSerial.println(inBuffer);	
+				dbSerial.println("**#");
+#endif
+			return ret_val;
+		}
+		if ((millis()-lastbyte)>timeDelay) rd = false;			
+ 	}
+	ret_val = RXNK;
+#ifdef DEBUG_ON	
+	dbSerial.println("#***");
+	dbSerial.println(la);
+	dbSerial.print("Ex:\t");
+	dbSerial.println(expected_resp_string);
+	dbSerial.print("<--#***");
+	dbSerial.println(inBuffer);	
+	dbSerial.println("***#");
+#endif
+	return ret_val;
+}
+
+ byte sendWaitChkResp(char* sent_string, int timeDelay,  char* expected_resp_string)  {
+	return sendWaitChkResp(sent_string, timeDelay,expected_resp_string, false);
+}
+
+
+ /***********************************************************************************************************************************
+ * Message Hashing and Encryption
+ * 
+ * 
+ */
+ 
+ /*****************************************
+ * mobilePrintHash - converts hashed data into a string
+ */
+
+void mobilePrintHash(uint8_t* hash) {
+  int i;
+  const char hashString[] = "0123456789abcdef";
+  for (i=0; i<32; i++) {
+    Serial.print(hashString[hash[i]>>4]);
+    Serial.print(hashString[hash[i]&0xf]);
+#ifdef DEBUG_ON		
+    dbSerial.print(hashString[hash[i]>>4]);
+    dbSerial.print(hashString[hash[i]&0xf]);	
+#endif
+	}
+}
+
+ /*****************************************
+ * gps_CRC16_checksum - standard checksum routine
+ */
+ 
+uint16_t gps_CRC16_checksum (char *string) {
+	size_t i;
+	uint16_t crc;
+	uint8_t c;
+	crc = 0xFFFF;
+	// Calculate checksum ignoring the first two $s
+	for (i = 2; i < strlen(string); i++)
+	{
+		c = string[i];
+		crc = _crc_xmodem_update (crc, c);
+	}
+	return crc;
+}
+
+ /*****************************************
+ * mob_SerialPrintln/mob_SerialPrint - allows easy bebugging 
+ */
+
+void mob_SerialPrintln(char* send_char) {
+	Serial.println(send_char);
+	dbSerial.println(send_char);
+#ifdef DEBUG_ON	
+	dbSerial.print("#-->#");
+	dbSerial.println(send_char);
+#endif
+}
+
+void mob_SerialPrint(char* send_char) {
+	Serial.print(send_char);
+		dbSerial.print(send_char);
+#ifdef DEBUG_ON	
+	dbSerial.print("#>#");
+	dbSerial.print(send_char);
+#endif
+}
+
+ /***********************************************************************************************************************************
+ * user functions
+ * 
+ * 
+ */
+ 
+ /*****************************************
+ * datadump
+ */  
+void datadump() {
+	//Need to be made specific to the actual payload being used.
+    char BufString[15] = "";
+    char comm[] = ",";
+
+	//payload name
+	strcpy (telemetryString,USR_PAYLOADNAME);
+	strcat(telemetryString,comm);
+
+	//count
+	sprintf(BufString, "%d", i2cVals.t_count);
+	strcat(telemetryString,BufString);
+    strcat(telemetryString,comm);
+	
+    //time
+    sprintf(BufString, "%02d:%02d:%02d",i2cVals.hour, i2cVals.minute, i2cVals.second); 
+    strcat(telemetryString,BufString);
+    strcat(telemetryString,comm);
+	
+	//Lat
+    sprintf(BufString, "%ld", i2cVals.i_lat);
+    strcat(telemetryString,BufString);
+    strcat(telemetryString,comm);
+
+ 	//Long
+    sprintf(BufString, "%ld", i2cVals.i_long);
+    strcat(telemetryString,BufString);
+    strcat(telemetryString,comm);
+
+ 	//Alt
+    sprintf(BufString, "%ld", i2cVals.i_alt);
+    strcat(telemetryString,BufString);
+    strcat(telemetryString,comm);
+	
+	//Pressure
+    sprintf(BufString, "%d", i2cVals.i_P);
+    strcat(telemetryString,BufString);
+    strcat(telemetryString,comm);
+	
+ 	//Internal temp
+    sprintf(BufString, "%d", i2cVals.i_T);
+    strcat(telemetryString,BufString);	
+    strcat(telemetryString,comm);
+	
+	//External Temp
+    sprintf(BufString, "%d", i2cVals.i_EXT);
+    strcat(telemetryString,BufString);	
+    strcat(telemetryString,comm);
+	
+	//Light
+    sprintf(BufString, "%d", i2cVals.i_L);
+    strcat(telemetryString,BufString);
+    strcat(telemetryString,comm);
+	
+	//Sats
+    sprintf(BufString, "%d", i2cVals.sats);
+    strcat(telemetryString,BufString);
+	
+	unsigned int CHECKSUM = gps_CRC16_checksum(telemetryString);  // Calculates the checksum for this datastring
+	char checksum_str[6];
+	sprintf(checksum_str, "*%04X\n", CHECKSUM);
+	strcat(telemetryString,checksum_str);
+	
+	int tmp_year = i2cVals.year + 2000;
+	sprintf(LONGDATE, "%04d-%02d-%02dT%02d:%02d:%02d.000Z",tmp_year, i2cVals.month, i2cVals.day,i2cVals.hour, i2cVals.minute, i2cVals.second); 
+}
+ 
+ 
+ /*****************************************
+ * PUT2Habhub - formats and sends data to HABHUB via a constructed HTTP PUT
+ */ 
+void PUT2Habhub(char* telemetryString) {
+	if (mobState[state_CIPSTATUS] < 4 && mobState[state_CIPSTATUS] > 7) return;
+
+	int iLength, aLength;
+	iLength = strlen(telemetryString);
+	base64_encode(outBuffer, telemetryString, iLength);											//base64 encode the telemetry string
+	aLength = strlen(outBuffer);
+	
+#ifdef DEBUG_ON	
+	dbSerial.println(telemetryString);
+	dbSerial.println(iLength);
+	dbSerial.println(outBuffer);
+	dbSerial.println(aLength);
+#endif
+
+	int l = PUT_TEMPLATE_LEN + aLength + 48;													// Get the total length of the string template + base64 encoded telemetry string
+	Sha256.init();																				// Initialise Sha256 encoding
+
+	for (int i=0; i<aLength; i++) {																// Send the Base64 encoded Telemetry string to the sha256 encyption function
+		Sha256.write(outBuffer[i]);
+	}
+  
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCIPSTART])));					// attach to HABHUB
+	sendWaitChkResp(prgmembuffer, 3000, S_CONNECT_OK);	
+
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCIPSEND])));					// start a send session
+	sendWaitChkResp(prgmembuffer, 3000, ">");	
+	
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PUTHABHUB0])));					// first bit of put, the sha256 encypted base64 telemetry string is the ID
+	mob_SerialPrint(prgmembuffer);
+	mobilePrintHash(Sha256.result());
+	delay(500);
+	
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PUTHABHUB1])));					// next bit
+	mob_SerialPrint(prgmembuffer);
+	delay(500);
+	
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PUTHABHUB2])));					// next bit
+	mob_SerialPrint(prgmembuffer);			
+	Serial.print(l);																			// send the expected length of the json parts
+
+#ifdef DEBUG_ON	
+	dbSerial.print(l);
+#endif
+	delay(300);	
+	
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PUTHABHUB3])));					// next bit end of the PUT command.
+	mob_SerialPrint(prgmembuffer);
+	delay(200);
+	
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PUTHABHUB4])));					// JSON payload1
+	mob_SerialPrint(prgmembuffer);			
+	delay(200);
+	
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PUTHABHUB5])));					// JSON payload2
+	mob_SerialPrint(prgmembuffer);			
+	delay(200);
+	
+	mob_SerialPrint(outBuffer);																	// telemetry in Base64 send after _RAW
+	delay(200);
+
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PUTHABHUB6])));					// JSON payload3
+	mob_SerialPrint(prgmembuffer);			
+	delay(200);
+	
+	mob_SerialPrint(USR_PAYRECEIVERNAME);															// The users payload name
+	delay(200);
+	
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PUTHABHUB7])));					// JSON payload4
+	mob_SerialPrint(prgmembuffer);				
+	delay(100);
+	
+	mob_SerialPrint(LONGDATE);																		// date/time
+							
+	delay(100);
+	
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PUTHABHUB8])));					// JSON payload5
+	mob_SerialPrint(prgmembuffer);				
+	delay(100);
+
+	mob_SerialPrint(LONGDATE);																	//(same) date/time											
+	delay(100);
+	
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PUTHABHUB9])));					// JSON payload6
+	mob_SerialPrint(prgmembuffer);			
+	delay(100);
+					
+	sendWaitChkResp("",10000, S_OK, true);														// Send Send character and wait.
+
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCIPCLOSE])));					//close the send session
+	sendWaitChkResp(prgmembuffer, 100, S_OK);
+
+}
+
+ /*****************************************
+ * SendTextMessage - does a SMS send message
+ */ 
+
+void SendTextMessage(char* telemetryString) {
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCMGS])));
+	strcat(prgmembuffer, USR_SMSNO);															// Add users number
+	strcat(prgmembuffer, "\"");
+	mob_SerialPrintln(prgmembuffer);
+	delay(100);
+	mob_SerialPrintln(telemetryString);															//the content of the message
+	delay(100);
+	sendWaitChkResp("",100, S_OK, true);														// Send Send character and wait.
+	}
+ 
+ 	
+void debugStates() {
+	const char disSET_ON[] 	= "SET_ON";
+	const char disSET_OFF[] = "SET_OFF";
+	const char disRXCONF[] 	= "RXCONF";
+	const char disRXNK[] 	= "RXNK";
+	
+	dbSerial.println("---");
+	
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_PROGMEMTST ])));
+	dbSerial.print("Progmem test:\t");
+	dbSerial.println(prgmembuffer);
+
+	dbSerial.print("Actual Volts:\t");
+	dbSerial.println(analogRead(MOBILE_STATUS));
+
+	dbSerial.print("IsMobileOn:\t");	
+	if (isMobileOn() == SET_ON) 	dbSerial.println(disRXCONF);
+	else dbSerial.println("RXNK");
+	
+	dbSerial.print("setMobileOn:\t");
+	if (mobRequest[setMobileOn] == SET_ON) 	dbSerial.println(disSET_ON);
+	else dbSerial.println(disSET_OFF);
+
+	dbSerial.print("setSendSMS:\t");
+	if (mobRequest[setSendSMS] == SET_ON) 	dbSerial.println(disSET_ON);
+	else dbSerial.println(disSET_OFF);	
+
+	dbSerial.print("setSendPUTS:\t");
+	if (mobRequest[setSendPUTS] == SET_ON) 	dbSerial.println(disSET_ON);
+	else dbSerial.println(disSET_OFF);	
+	
+	dbSerial.print("state_Mobile:\t");	
+	if (mobState[state_Mobile] == RXCONF) 	dbSerial.println(disRXCONF);
+	else dbSerial.println(disRXNK);	
+
+	dbSerial.print("state_ATS0:\t");	
+	if (mobState[state_ATS0] == RXCONF) 	dbSerial.println(disRXCONF);
+	else dbSerial.println(disRXNK);	
+
+	dbSerial.print("state_CMGF1:\t");	
+	if (mobState[state_CMGF1] == RXCONF) 	dbSerial.println(disRXCONF);
+	else dbSerial.println(disRXNK);
+
+	dbSerial.print("state_CIPSPRT:\t");	
+	if (mobState[state_CIPSPRT] == RXCONF) 	dbSerial.println(disRXCONF);
+	else dbSerial.println(disRXNK);
+
+	dbSerial.print("state_ATCLVL:\t");	
+	if (mobState[state_ATCLVL] == RXCONF) 	dbSerial.println(disRXCONF);
+	else dbSerial.println(disRXNK);	
+	
+	dbSerial.print("state_CIPSTATUS:\t");
+	dbSerial.println(mobState[state_CIPSTATUS]);
+
+}
+
+ /***********************************************************************************************************************************
+ * Setup/loop
+ * 
+ * 
+ */
+
+void setup() {
+	pinMode(MOBILE_ONOFF, OUTPUT);
+	pinMode(MOBILE_STATUS, INPUT); 
+
+	ElaspeSMS =millis();
+	ElaspeHAB =millis();
+	
+	Serial.begin(19200);  																		// the GPRS baud rate  
+	dbSerial.begin(19200);    																	// the Debug baud rate
+	Wire.begin(I2C_SLAVE_ADDRESS);																// Uses the I2C interface to get the telemetry values.
+	ET.begin(details(i2cVals), &Wire);
+	//define handler function on receiving data ps. you don't want to put anything in this that takes any time.!!!
+	Wire.onReceive(receive);	 
+	
+	PUT_TEMPLATE_LEN = 0;																		//Calculate the size of the PUT template for future use
+	for (int i = R_PUTHABHUB4; i<=R_PUTHABHUB9; i++) {											//be sure to change these if index table is changed
+		strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[i])));					
+		PUT_TEMPLATE_LEN += strlen(prgmembuffer);
+	}
+	PUT_TEMPLATE_LEN += strlen(USR_PAYRECEIVERNAME);											//Add the length of the payload name.
+	mobRequest[setMobileOn] = SET_ON;	
+	mobRequest[setSendPUTS] = SET_ON;
+	mobRequest[setSendSMS]  = SET_ON;
+
+	}
+	
+
+void loop() {
+	delay (2000);
+	debugStates();
+#ifdef DEBUG_ON
+/*
+	if (dbSerial.available()) {
+		switch(dbSerial.read()) {
+		case '0':
+			mobRequest[setMobileOn] = SET_ON;	   
+		   break; 
+		case '1': 
+			mobRequest[setMobileOn] = SET_OFF;
+		   break;
+		case '2':
+			mobRequest[setSendSMS] = SET_ON;
+			break;
+		case '3':
+			mobRequest[setSendSMS] = SET_OFF;
+			break;
+		case '4':
+			mobRequest[setSendPUTS] = SET_ON;
+			break;
+		case '5':
+			mobRequest[setSendPUTS] = SET_OFF;
+			break;
+		}
+    }
+	*/
+#endif
+
+	manageMobileModule();
+	
+	if(ET.receiveData()) {
+		if (mobState[state_Mobile] == RXCONF) {
+			datadump();		
+			if (mobRequest[setSendSMS] == SET_ON) {
+					if ((millis() - ElaspeSMS) > USR_SMSDELAY) {
+						ElaspeSMS = millis();
+						SendTextMessage(telemetryString);
+					}
+			}
+			if (mobRequest[setSendPUTS] == SET_ON) {
+					PUT2Habhub(telemetryString);
+			}
+		}
+	}
+
+	if (i2cVals.i_alt > USR_OFFALTITUDE_CM) {
+		mobRequest[setMobileOn] = SET_OFF;
+	} else {
+		mobRequest[setMobileOn] = SET_ON;		
+	}
+
+}
