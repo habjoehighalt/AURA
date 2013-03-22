@@ -70,12 +70,12 @@ IC2DATA_STRUCTURE i2cVals;
 /*********************************************************
  * User settings
  */
-static long USR_OFFALTITUDE_CM		= 182800;								// In Centimeters Mtr*100 (i use 6000 ft)
-static long USR_SMSDELAY			= 300000;								//
-static char USR_PAYRECEIVERNAME[] 	= "HABJOE-GPRS";						// 
-static char USR_PAYLOADNAME[]		= "$$AURA";								// Include the $$ as well.
-static char USR_APN[] 				= "payandgo.o2.co.uk";					// Users APN 
-static char USR_SMSNO[] 			= "+44xxxx";						// Users mobile no for SMS messages
+static long USR_OFFALTITUDE_CM		= 182800;				// In Centimeters Mtr*100 (i use 6000 ft)
+static long USR_SMSDELAY		= 300000;				// In milli
+static char USR_PAYRECEIVERNAME[] 	= "HABJOE-GPRS";			// Base Station Name
+static char USR_PAYLOADNAME[]		= "$$???";				// Include the $$ as well.
+static char USR_APN[] 			= "xxxxx";				// Users APN Mobile network 
+static char USR_SMSNO[] 		= "+44xxxx";			// Users mobile no for SMS messages
 
 int 		PUT_TEMPLATE_LEN;	// This is calculated in setup;
 char 		telemetryString[80];  	
@@ -176,7 +176,7 @@ byte mobRequest[3] = {SET_OFF,SET_OFF,SET_OFF};
  * Mobile Status
  */
 static int state_Mobile 	= 0;	//is mobile on
-static int state_CIPSTATUS 	= 1;    //gets currect status
+static int state_CIPSTATUS 	= 1;    //gets current status
 
 static int state_ATS0 		= 2;	//answer after 1 ring
 static int state_CMGF1 		= 3;	//SMS in text mode
@@ -379,7 +379,7 @@ void receive(int numBytes) {
 
 
  /*****************************************
- * manageMobileModule - State machine to turn on/off module and when on set module settings, and achive and maintain GPRS status 4
+ * manageMobileModule - State machine to turn on/off module and when on set module settings, and set and maintain GPRS status 4
  */
  
  void manageMobileModule() {
