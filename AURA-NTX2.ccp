@@ -1,31 +1,30 @@
 /*
  HABJOE  Arduino Flight script
- HABJOE - Andrew Myatt and Joseph Myatt Jan/2013
-
- This code is in the public domain.
- Incorporating code by:
- J Coxon (http://ukhas.org.uk/guides:falcom_fsa03)
- 
- This library is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- Lesser General Public License for more details.
-
- You should have received a copy of the GNU Lesser General Public
- License along with this library; if not, write to the Free Software
- Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
-
- NTX2 Radio. 2012 by M0UPU as part of a UKHAS Guide on linking NTX2 Modules to Arduino.
- RTTY code from Rob Harrison Icarus Project. http://ukhas.org.uk
- UBX code. http://ukhas.org.uk
- + Various others sources of code!!
- 
- This software is free software; you can redistribute it and/or
- modify it under the terms of the GNU Lesser General Public
- License as published by the Free Software Foundation; either
- version 2.1 of the License, or (at your option) any later version.
+ HABJOE - Andrew Myatt and Joseph Myatt March/2013
 
 
+KEYWORDS: ARDUINO MINIPRO, HIGH ALTITUDE BALLOON, NTX2, AI2C, WIRING
+
+This code is in the public domain.
+This library is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public
+License along with this library; if not, write to the Free Software
+Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+This software is free software; you can redistribute it and/or
+modify it under the terms of the GNU Lesser General Public
+License as published by the Free Software Foundation; either
+version 2.1 of the License, or (at your option) any later version.
+
+This software is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+Lesser General Public License for more details.
+
+RECEIVES PACKET OF INFORMATION VIA I2C INTERFACE AND SENDS IT VIA NTX2 TRANSMITTER.
 
 */ 
 #include "Wire.h"
