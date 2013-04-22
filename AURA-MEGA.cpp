@@ -31,6 +31,9 @@
  I2C INTERFACE TO MOBILE MODULE AND TRANSMITTER
  
 */
+
+#define HABJOE_MEGAMAIN
+
 #include <SPI.h>
 #include <RFM22.h>a
 #include <util/crc16.h>
@@ -56,7 +59,7 @@
 #define SET_LED_OFF 0
 //
 
-#define WAIT_ARD_Y    10000
+#define WAIT_ARD_Y  	10000
 
 // Define filenames
 //
@@ -67,16 +70,16 @@
 #define PIN_GPS_RX 0        		//Fixed:Note: RX on Board is connected to RX on GPS Board
 #define PIN_GPS_TX 1        		//Fixed:Note: TX on Board is connected to TX on GPS Board
 #define PIN_GYRO_INT 2       		//Notes: Gyro Interupt
-#define PIN_LED_RED 5        		//Fixed: Red LED
-#define PIN_LED_BLUE 6       		//Fixed: Blue LED
-#define PIN_LED_GREEN 7      		//Fixed: Blue GREEN
+#define PIN_LED_RED 4        		//Fixed: Red LED
+#define PIN_LED_BLUE 5       		//Fixed: Blue LED
+#define PIN_LED_GREEN 6      		//Fixed: Blue GREEN
 
 #define PIN_IC2_SDA 20       		//Fixed: SDA
 #define PIN_IC2_SLC 21       		//Fixed: SLC
 #define PIN_SPI_CS 53        		//Fixed: Card Select for SD Card
 
-#define PIN_TEMP_EX A4       		//Fixed: External Temperature
-#define PIN_TEMP_IN A2       		//Fixed: Internal Temperature
+//#define PIN_TEMP_EX A2       		//Fixed: External Temperature
+//#define PIN_TEMP_IN A4       		//Fixed: Internal Temperature
 #define PIN_LIGHT_SEN A1       		//Fixed: Light Sensor
 
 #define BMP085_ADDRESS 0x77  		// I2C address of BMP085
@@ -84,6 +87,9 @@
 #define I2C_SLV_TRANSMITTER_ADDRESS 10	//define slave i2c address
 
 #define aref_voltage 3.3 
+
+#define SD_BUFF_SIZE 	512
+char SDBuffer[SD_BUFF_SIZE];
 
 //Declare structures
 
@@ -141,18 +147,18 @@ typedef union {
         IC2DATA_STRUCTURE ic2Vals;
 } HJPacket;
 
-EasyTransferI2C ET;				//Easy Transfer
-HJPacket adx;					//Send to ARDY structure
-
-SdFat 			SD;				//SD
-SdFile 			dataFile;		//SDFile
-MPU6050 		mpu;			//MPU6050 Gyro
-TinyGPS_HJOE 	gps;			//GPS
-
+EasyTransferI2C 	ET;				//Easy Transfer
+HJPacket			adx;			//packet of telemetry for other slave arduino's
+SdFat 				SD;				//SD
+SdFile 				dataFile;		//SDFile
+MPU6050 			mpu;			//MPU6050 Gyro
+TinyGPS_HJOE 		gps;			//GPS
 
 int			ALGPOLL;
 bool		SENDWIRE;
 bool		NEWGPSDATA;
+
+
 //Variables
 // class default I2C address is 0x68
 // specific I2C addresses may be passed as a parameter here
@@ -356,131 +362,30 @@ unsigned long bmp085ReadUP()
 void datadump() {
 
     char SDString[120] = "";
-    char BufString[30] = "";
-    char comm[] = ",";
+   	int tmp_year = adx.vals.year + 2000;	
+    
+	sprintf(SDString, "%ld,%d,%04d-%02d-%02d,%02d:%02d:%02d.%02d,%ld,%ld,%ld,%ld,%ld,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", 
+	adx.vals.usl_count,
+	adx.vals.t_count,
+	tmp_year, adx.vals.month, adx.vals.day,
+	adx.vals.hour, adx.vals.minute, adx.vals.second, adx.vals.hundredths,
+	adx.vals.i_lat,adx.vals.i_long,adx.vals.i_alt,adx.vals.i_angle,adx.vals.i_Hspeed,
+	adx.vals.MPU6050ax,adx.vals.MPU6050ay,adx.vals.MPU6050az,
+	adx.vals.MPU6050gx,adx.vals.MPU6050gy,adx.vals.MPU6050gz,
+	adx.vals.TMP_INT,adx.vals.TMP_EXT,adx.vals.i_L,adx.vals.BMP085_P,adx.vals.BMP085_T,
+	adx.vals.sats,adx.vals.age,adx.vals.ihdop);  
 	
-    //usl_count
-	sprintf(BufString, "%ld", adx.vals.usl_count);    
-	strcat(SDString,BufString);
-    strcat(SDString,comm);
-
-	//t_count
-	sprintf(BufString, "%d", adx.vals.t_count);    
-	strcat(SDString,BufString);
-    strcat(SDString,comm);
-	
-   //time
-   	int tmp_year = adx.vals.year + 2000;
-    sprintf(BufString, "%04d-%02d-%02dT%02d:%02d:%02d.%02d",tmp_year, adx.vals.month, adx.vals.day,adx.vals.hour, adx.vals.minute, adx.vals.second, adx.vals.hundredths); 
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-	
-	//Lat
-    sprintf(BufString, "%ld", adx.vals.i_lat);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-
- 	//Long
-    sprintf(BufString, "%ld", adx.vals.i_long);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-
- 	//Alt
-    sprintf(BufString, "%ld", adx.vals.i_alt);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
- 	
-	//angle	
-    sprintf(BufString, "%ld", adx.vals.i_angle);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
- 	
-	//i_Hspeed	
-    sprintf(BufString, "%ld", adx.vals.i_Hspeed);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-	
-	//i_Vspeed	
-    sprintf(BufString, "%ld", adx.vals.i_Vspeed);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-
-	//MPU6050ax
-    sprintf(BufString, "%d", adx.vals.MPU6050ax);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-
-	//MPU6050ay
-    sprintf(BufString, "%d", adx.vals.MPU6050ay);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-	
-   //MPU6050az
-    sprintf(BufString, "%d", adx.vals.MPU6050az);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-
-   //MPU6050gx
-    sprintf(BufString, "%d", adx.vals.MPU6050gx);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-
-   //MPU6050gy
-    sprintf(BufString, "%d", adx.vals.MPU6050gy);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-
-   //MPU6050gz
-    sprintf(BufString, "%d", adx.vals.MPU6050gz);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-	
-   //TMP36_INT
-    sprintf(BufString, "%d", adx.vals.TMP_INT);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-
-   //TMP36_EXT
-    sprintf(BufString, "%d", adx.vals.TMP_EXT);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-	
-   //Light Sensor
-    sprintf(BufString, "%d", adx.vals.i_L);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-	
-   //Pressure
-    sprintf(BufString, "%d", adx.vals.BMP085_P);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-	
-   //Pressure Temp
-    sprintf(BufString, "%d", adx.vals.BMP085_T);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-
-	//Light sats
-    sprintf(BufString, "%d", adx.vals.sats);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-	
-   //age
-    sprintf(BufString, "%d", adx.vals.age);
-    strcat(SDString,BufString);
-    strcat(SDString,comm);
-	
-   //ihdop
-    sprintf(BufString, "%d", adx.vals.ihdop);
-    strcat(SDString,BufString);
 	
    #ifdef DEBUG_ON	
 	Serial.println(SDString);
    #endif 
-   
-   dataFile.println(SDString);
-   dataFile.sync();
- 
+		
+   if (sizeof(SDBuffer)-strlen(SDBuffer) < strlen(SDString)) {
+		dataFile.write(SDBuffer,strlen(SDBuffer));
+		dataFile.sync();		
+		memset(SDBuffer, 0, sizeof(SDBuffer));
+   }
+   strcat(SDBuffer,SDString);
 
 }
 
@@ -527,9 +432,10 @@ void dmpDataReady() {
 }
 
 void setup() {
-	Serial.begin(9600);
+	Serial.begin(115200);
 	Serial1.begin(9600); 
-	analogReference(EXTERNAL);
+	//analogReference(EXTERNAL);
+	analogReference(DEFAULT);
 	pinMode(PIN_LED_GREEN, OUTPUT);
 	pinMode(PIN_LED_RED, OUTPUT);
 	pinMode(PIN_LED_BLUE, OUTPUT);
@@ -640,26 +546,27 @@ void loop() {
 	adx.vals.usl_count++;
 	
 		//flip flop between TMP's to allow voltages to settle
-	if (ALGPOLL == 0) {
-	  voltage = analogRead(PIN_TEMP_IN) * aref_voltage;
-	  voltage = ((voltage/1024.0) - 0.5) * 1000;
-	  adx.vals.TMP_INT = (int)voltage;	
-	  ALGPOLL++;
-	}
-	else if (ALGPOLL == 1) {  
-	  voltage = analogRead(PIN_TEMP_EX) * aref_voltage;
-	  voltage = ((voltage/1024.0) - 0.5) * 1000;
-	  adx.vals.TMP_EXT = (int)voltage;
-	  ALGPOLL++;		  
-	}
-	else if (ALGPOLL == 2) {  
+	//if (ALGPOLL == 0) {
+	//  voltage = analogRead(PIN_TEMP_IN) * aref_voltage;
+	//  voltage = ((voltage/1024.0) - 0.5) * 1000;
+	  adx.vals.TMP_INT = 0;	
+	  adx.vals.TMP_EXT = 0;	
+	  //  ALGPOLL++;
+	//}
+	//else if (ALGPOLL == 1) {
+	//  voltage = analogRead(PIN_TEMP_EX) * aref_voltage;
+	//  voltage = ((voltage/1024.0) - 0.5) * 1000;
+	//  adx.vals.TMP_EXT = (int)voltage;
+	 // ALGPOLL++;		  
+	//}
+	//else if (ALGPOLL == 2) {  
 	   voltage = analogRead(PIN_LIGHT_SEN);
 	   voltage = (voltage/1024) * 250;
 	   adx.vals.i_L = (byte)voltage;
-	  ALGPOLL++;	  
+	//  ALGPOLL++;	  
 
-	}
-	if (ALGPOLL >2) ALGPOLL=0;
+	//}
+	//if (ALGPOLL >2) ALGPOLL=0;
 	
     //if (feedgps()) NEWGPSDATA =true;
 	mpu.getMotion6(&adx.vals.MPU6050ax, &adx.vals.MPU6050ay, &adx.vals.MPU6050az, &adx.vals.MPU6050gx, &adx.vals.MPU6050gy, &adx.vals.MPU6050gz);
@@ -670,7 +577,7 @@ void loop() {
 	byte lcount = 0;
 	while (!NEWGPSDATA && lcount < 255) {
 		NEWGPSDATA = feedgps();
-		lcount++
+		lcount++;
 	}
 		
 	if (NEWGPSDATA) {
@@ -685,7 +592,7 @@ void loop() {
 		adx.vals.ihdop = gps.hdop();
 		SET_LED_Status(SET_LED_BLUE,0);	
 	} else {
-		SET_LED_Status(SET_LED_GREEN,10);
+		SET_LED_Status(SET_LED_GREEN,0);
 	}
 	
 	//flip flop between I2C's to avoid both on one loop
@@ -695,14 +602,13 @@ void loop() {
 		elapseTransmitter = millis();
 	}
 	
-	if (SENDWIRE && (millis() - elapseMobile) >10000) {
+	if (SENDWIRE && (millis() - elapseMobile) >10100) {
 		adx.vals.t_count++;
 		ET.sendData(I2C_SLV_MOBILE_ADDRESS);		
 		elapseMobile = millis();
 	} 
 	datadump();
 	SET_LED_Status(SET_LED_OFF,0);
-	//elapseDump = millis();
 	NEWGPSDATA = false;
 	SENDWIRE = !SENDWIRE;
 }
