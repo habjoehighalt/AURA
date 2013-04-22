@@ -45,29 +45,6 @@
 #define DEBUG_ON
 
 // NOTE WIRE BUFFER SIZE INCREASED TO 50 in wire.h
- /***********************************************************************************************************************************
- * Altitude phone on/off and cut away
- * 
- *
- *
-#defind altBuffer 50
- 
- altMode[altRing] = InAlt;
- altRing++;
- if (altRing > altBuffer) altRing=0;
- int mMin = 99999999;
- int mMax = 0;
- for (int i =0; i< altBuffer; i++){
-  if (altMode[i] > mMax) mMax = altMode[i];
- 	if (altMode[i] < mMin) mMin = altMode[i];
-}
-
-	
-int	altMode[] = {0,0,0,0,0};
-int maxAlt = 0;
-int minAlt = 9999999;
-byte altRing = 0;
-/*
 
  /***********************************************************************************************************************************
  * Data definitions
@@ -76,7 +53,7 @@ byte altRing = 0;
  */
 
 typedef struct {
-	  uint16_t t_count;  			    //2
+	  uint16_t t_count;  			//2
 	  byte 	  year;					//1 	  
 	  byte    month;				//1	  
 	  byte    day;					//1	  
@@ -99,12 +76,13 @@ IC2DATA_STRUCTURE i2cVals;
 /*********************************************************
  * User settings
  */
-static long USR_OFFALTITUDE_CM		= 182800;				// In Centimeters Mtr*100 (i use 6000 ft)
-static long USR_SMSDELAY		= 300000;				// In milli
-static char USR_PAYRECEIVERNAME[] 	= "HABJOE-GPRS";			// Base Station Name
-static char USR_PAYLOADNAME[]		= "$$???";				// Include the $$ as well.
-static char USR_APN[] 			= "xxxxx";				// Users APN Mobile network 
-static char USR_SMSNO[] 		= "+44xxxx";			// Users mobile no for SMS messages
+static long USR_OFFALTITUDE_CM		= 400000;								// In Centimeters Mtr*100 (i use 6000 ft)
+static long USR_SMSDELAY			= 300000;								//
+static char USR_PAYRECEIVERNAME[] 	= "HABJOE-GPRS";						// 
+static char USR_PAYLOADNAME[]		= "$$AURA";								// Include the $$ as well.
+static char USR_APN[] 				= "payandgo.o2.co.uk";					// Users APN 
+static char USR_SMSNO[] 			= "00000";						// Users mobile no for SMS messages
+static char USR_SMSNO1[] 			= "00000";						// Users mobile no for SMS messages
 
 int 		PUT_TEMPLATE_LEN;	// This is calculated in setup;
 char 		telemetryString[80];  	
@@ -141,6 +119,8 @@ char 		telemetryString[80];
 #define R_ATCIFSR 		22
 #define R_ATCLVL 		23
 #define R_ATCIPSHUT		24
+#define R_ATCMIC015		25
+#define R_ATCSQ  		26
 
 prog_char PROGMEMTST[]  PROGMEM = "PROGMEM TEST OK";
 prog_char ATCIPSTART[]  PROGMEM = "AT+CIPSTART=\"tcp\",\"habitat.habhub.org\",\"80\"";
@@ -165,8 +145,10 @@ prog_char ATCIPSPRT1[]  PROGMEM = "AT+CIPSPRT=1";
 prog_char ATCGATT1[]    PROGMEM = "AT+CGATT=1";
 prog_char ATCIICR[]     PROGMEM = "AT+CIICR";
 prog_char ATCIFSR[]     PROGMEM = "AT+CIFSR";
-prog_char ATCLVL[]   	PROGMEM = "AT+CLVL=100";
+prog_char ATCLVL[]   	PROGMEM = "AT+CLVL=99";
 prog_char ATCIPSHUT[]   PROGMEM = "AT+CIPSHUT";
+prog_char ATCMIC015[]   PROGMEM = "AT+CMIC=0,15";
+prog_char ATCSQ[]   	PROGMEM = "AT+CSQ";
 
 PROGMEM const char *prgm_table[] = 	 {   
   PROGMEMTST,ATCIPSTART,ATCIPSEND,
@@ -176,7 +158,8 @@ PROGMEM const char *prgm_table[] = 	 {
   PUTHABHUB9,ATCMGS,ATCSTT,
   ATCIPSTATUS,ATCIPCLOSE,ATS01,
   TCMGF1,ATCIPSPRT1,ATCGATT1,
-  ATCIICR,ATCIFSR,ATCLVL,ATCIPSHUT 
+  ATCIICR,ATCIFSR,ATCLVL,ATCIPSHUT,
+  ATCMIC015,ATCSQ
   };
   
 const int PROMEMBUFSIZE = 80;
@@ -205,15 +188,15 @@ byte mobRequest[3] = {SET_OFF,SET_OFF,SET_OFF};
  * Mobile Status
  */
 static int state_Mobile 	= 0;	//is mobile on
-static int state_CIPSTATUS 	= 1;    //gets current status
+static int state_CIPSTATUS 	= 1;    //gets currect status
 
 static int state_ATS0 		= 2;	//answer after 1 ring
 static int state_CMGF1 		= 3;	//SMS in text mode
 static int state_CIPSPRT 	= 4;	//Set prompt when data sends
 static int state_ATCLVL 	= 5;	//Speak Level Control
+static int state_ATCMIC015 	= 6;	//Mic Level Control
 
-
-byte mobState[] = {RXNK,99,RXNK,RXNK,RXNK,RXNK};
+byte mobState[] = {RXNK,99,RXNK,RXNK,RXNK,RXNK,RXNK};
 
 /******************************************
  * Pin Definitions
@@ -223,6 +206,7 @@ int MOBILE_RX = 2;
 int MOBILE_TX = 3;
 int MOBILE_ONOFF = 9;
 int MOBILE_STATUS = A0;
+int MOBILE_SIGPWR = A1;
 
 /*****************************************
  * Buffers
@@ -265,7 +249,7 @@ static char S_CONNECT_OK[]=		"CONNECT OK";
  */
  
   /*****************************************
- * isMobileOn - reads analogRead pin MOBILE_STATUS - this is wired to RI (ring indicator in the UART block. (its powered up and down as the module powers up and down)
+ * isMobileOn - reads analogRead pin MOBILE_STATUS - this is wired to 2.6volt SIM900 Power in the module.)
  */
 
 void receive(int numBytes) {
@@ -408,7 +392,7 @@ void receive(int numBytes) {
 
 
  /*****************************************
- * manageMobileModule - State machine to turn on/off module and when on set module settings, and set and maintain GPRS status 4
+ * manageMobileModule - State machine to turn on/off module and when on set module settings, and achive and maintain GPRS status 4
  */
  
  void manageMobileModule() {
@@ -445,12 +429,12 @@ void receive(int numBytes) {
 	}	
 	if (mobState[state_ATCLVL] == RXNK) {
 		strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCLVL])));
-		mobState[state_ATCLVL] = sendWaitChkResp(prgmembuffer, 2000, S_OK);		    				//set speaker level to 100
+		mobState[state_ATCLVL] = sendWaitChkResp(prgmembuffer, 2000, S_OK);		    				//set speaker level to 14
 	}	
-
-	//AT+CSQ a,99
-	//AT+CREG? 
-	//+
+	if (mobState[state_ATCMIC015] == RXNK) {
+		strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCMIC015])));
+		mobState[state_ATCMIC015] = sendWaitChkResp(prgmembuffer, 2000, S_OK);		    				//set mic level to max
+	}
 	
 	if ((mobState[state_CIPSTATUS] == 8 || mobState[state_CIPSTATUS] == 9)) {														//Shut the TCP session
 		strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCIPSHUT])));					
@@ -803,7 +787,16 @@ void SendTextMessage(char* telemetryString) {
 	delay(100);
 	mob_SerialPrintln(telemetryString);															//the content of the message
 	delay(100);
+	sendWaitChkResp("",300, S_OK, true);														// Send Send character and wait.
+	strcpy_P(prgmembuffer, (char*)pgm_read_word(&(prgm_table[R_ATCMGS])));
+	strcat(prgmembuffer, USR_SMSNO1);															// Add users number
+	strcat(prgmembuffer, "\"");
+	mob_SerialPrintln(prgmembuffer);
+	delay(100);
+	mob_SerialPrintln(telemetryString);															//the content of the message
+	delay(100);
 	sendWaitChkResp("",100, S_OK, true);														// Send Send character and wait.
+
 	}
  
  	
@@ -858,6 +851,10 @@ void debugStates() {
 	if (mobState[state_ATCLVL] == RXCONF) 	dbSerial.println(disRXCONF);
 	else dbSerial.println(disRXNK);	
 	
+	dbSerial.print("state_ATCMIC015:\t");	
+	if (mobState[state_ATCMIC015] == RXCONF) 	dbSerial.println(disRXCONF);
+	else dbSerial.println(disRXNK);	
+	
 	dbSerial.print("state_CIPSTATUS:\t");
 	dbSerial.println(mobState[state_CIPSTATUS]);
 
@@ -872,7 +869,8 @@ void debugStates() {
 void setup() {
 	pinMode(MOBILE_ONOFF, OUTPUT);
 	pinMode(MOBILE_STATUS, INPUT); 
-
+	pinMode(MOBILE_SIGPWR, OUTPUT);
+	
 	ElaspeSMS =millis();
 	ElaspeHAB =millis();
 	
@@ -937,7 +935,7 @@ void loop() {
 						SendTextMessage(telemetryString);
 					}
 			}
-			if (mobRequest[setSendPUTS] == SET_ON) {
+			if (mobRequest[setSendPUTS] == SET_ON && i2cVals.sats > 0) {
 					PUT2Habhub(telemetryString);
 			}
 		}
