@@ -26,7 +26,6 @@ Lesser General Public License for more details.
 
 RECEIVES PACKET OF INFORMATION VIA I2C INTERFACE AND SENDS IT VIA NTX2 TRANSMITTER.
 
-*/ 
 #include "Wire.h"
 #include "I2Cdev.h"
 #include <EasyTransferI2C.h>
@@ -42,7 +41,7 @@ RECEIVES PACKET OF INFORMATION VIA I2C INTERFACE AND SENDS IT VIA NTX2 TRANSMITT
 //
 // Arduino Pin assignment
 //
-static int PIN_NTX_TX = 9;        //Note: NTX Transmitter out
+static int PIN_NTX_TX = 8;        //Note: NTX Transmitter out
 static int PIN_LED_GREEN = 13;    //Fixed: GREEN
 
  /***********************************************************************************************************************************
@@ -52,7 +51,7 @@ static int PIN_LED_GREEN = 13;    //Fixed: GREEN
  */
 
 typedef struct {
-    uint16_t t_count;  			    //2
+	  uint16_t t_count;  			    //2
 	  byte 	  year;					//1 	  
 	  byte    month;				//1	  
 	  byte    day;					//1	  
@@ -76,7 +75,7 @@ IC2DATA_STRUCTURE i2cVals;
  * User settings
  */
 
-static char USR_PAYLOADNAME[]		= "$$AURA";								// Include the $$ as well.
+static char USR_PAYLOADNAME[]		= "$$$$AURA";								// Include the $$ as well.
 char 		telemetryString[80];  	
 #define I2C_SLAVE_ADDRESS 10
 
@@ -91,67 +90,16 @@ char 		telemetryString[80];
  */  
 void datadump() {
 	//Need to be made specific to the actual payload being used.
-    char BufString[15] = "";
-    char comm[] = ",";
 
-	//payload name
-	strcpy (telemetryString,USR_PAYLOADNAME);
-	strcat(telemetryString,comm);
+	sprintf(telemetryString, "$$AURA,%d,%02d:%02d:%02d,%ld,%ld,%ld,%d,%d,%d,%d,%d", 
+	i2cVals.t_count,cVals.hour, i2cVals.minute, i2cVals.second,i2cVals.i_lat,
+	i2cVals.i_long,i2cVals.i_alt,i2cVals.i_P,i2cVals.i_T, i2cVals.i_EXT,
+	i2cVals.i_L,i2cVals.sats);
 
-	//count
-	sprintf(BufString, "%d", i2cVals.t_count);
-	strcat(telemetryString,BufString);
-    strcat(telemetryString,comm);
-	
-    //time
-    sprintf(BufString, "%02d:%02d:%02d",i2cVals.hour, i2cVals.minute, i2cVals.second); 
-    strcat(telemetryString,BufString);
-    strcat(telemetryString,comm);
-	
-	//Lat
-    sprintf(BufString, "%ld", i2cVals.i_lat);
-    strcat(telemetryString,BufString);
-    strcat(telemetryString,comm);
-
- 	//Long
-    sprintf(BufString, "%ld", i2cVals.i_long);
-    strcat(telemetryString,BufString);
-    strcat(telemetryString,comm);
-
- 	//Alt
-    sprintf(BufString, "%ld", i2cVals.i_alt);
-    strcat(telemetryString,BufString);
-    strcat(telemetryString,comm);
-	
-	//Pressure
-    sprintf(BufString, "%d", i2cVals.i_P);
-    strcat(telemetryString,BufString);
-    strcat(telemetryString,comm);
-	
- 	//Internal temp
-    sprintf(BufString, "%d", i2cVals.i_T);
-    strcat(telemetryString,BufString);	
-    strcat(telemetryString,comm);
-	
-	//External Temp
-    sprintf(BufString, "%d", i2cVals.i_EXT);
-    strcat(telemetryString,BufString);	
-    strcat(telemetryString,comm);
-	
-	//Light
-    sprintf(BufString, "%d", i2cVals.i_L);
-    strcat(telemetryString,BufString);
-    strcat(telemetryString,comm);
-	
-	//Sats
-    sprintf(BufString, "%d", i2cVals.sats);
-    strcat(telemetryString,BufString);
-	
 	unsigned int CHECKSUM = gps_CRC16_checksum(telemetryString);  // Calculates the checksum for this datastring
 	char checksum_str[6];
 	sprintf(checksum_str, "*%04X\n", CHECKSUM);
-	strcat(telemetryString,checksum_str);
-	
+	strcat(telemetryString,checksum_str);	
 }
 void setup() {
 	pinMode(PIN_LED_GREEN, OUTPUT);
@@ -165,10 +113,8 @@ void setup() {
 	Wire.onReceive(receive);	 
 
 	for (int i = 0; i<10;i++){
-		digitalWrite(PIN_GREEN, HIGH);
-		delay(200);
-		digitalWrite(PIN_GREEN, LOW);
-		delay(100);
+		LED_Status(LED_ON,200);
+		LED_Status(LED_OFF,100);
 	}
 
 }
@@ -201,7 +147,7 @@ void rtty_txstring ( char * string) {
   //Simple function to sent a char at a time to rtty_txbyte function. 
   char c;
   c = *string++;    
-  while (c != '\n'){
+  while (c != '\0'){
     rtty_txbyte (c);
     c = *string++;
   }
@@ -264,6 +210,8 @@ void loop() {
 		LED_Status(LED_ON,0);
 		datadump();		
 		Serial.println(telemetryString);
+		rtty_txstring("$$");
 		rtty_txstring(telemetryString);
 	}
 }
+
