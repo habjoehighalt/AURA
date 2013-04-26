@@ -27,6 +27,9 @@
  
  RECEIVES A PACKET OF INFORMATION VIA A I2C INTERFACE AND SENDS IT TO SMS AND GRPS (HABHUB).
 
+ NOTE: THE "MOBILE_STATUS" Pin (A0) must be wired to the 2V6 power output from the SIM900
+ The enable positive feedback to the Arduino that the SIM900 is on or off.
+
 */ 
 
 #include <SoftwareSerial.h>
